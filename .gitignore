@@ -1,0 +1,30 @@
+# Security & Secrets
+.env
+.env.*
+!.env.example
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Python Caches & Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Vector Databases
+chroma_db/
+
+# Data & Models
+data/raw/
+*.joblib
+*.pkl
+
+# Media (Dynamically generated)
+*.png
+
+# OS System Files (Mac/Windows clutter)
+.DS_Store
+Thumbs.db
