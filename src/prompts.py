@@ -1,51 +1,55 @@
 """
-Prompts for the World Cup RAG chatbot.
+Prompts for the World Cup RAG Chatbot.
 
-Two prompts are used in the chain:
+CONDENSE_SYSTEM_PROMPT — used by create_history_aware_retriever.
+    Rewrites follow-up questions into standalone questions using chat history
+    BEFORE the retriever is called. This is what makes multi-turn conversations
+    work. Without it, "How many goals did he score?" reaches the retriever
+    as-is and returns irrelevant chunks.
 
-1. QA_SYSTEM_PROMPT  — injected on every generation call alongside the
-   retrieved chunks. Tells Claude its role and constraints.
-
-2. CONDENSE_PROMPT   — rewrites a follow-up question into a self-contained
-   question that includes all context from the chat history. This is what
-   allows the chatbot to handle multi-turn conversations like:
-     User: "Who scored in the 1986 final?"
-     Bot:  "Burruchaga scored the winner..."
-     User: "How old was he then?"   ← this needs to be rewritten to
-           "How old was José Luis Burruchaga during the 1986 World Cup final?"
-   before being sent to the retriever.
+QA_SYSTEM_PROMPT — injected on every generation call alongside retrieved chunks.
+    Written with explicit prohibition language because Llama-3.3 (unlike Claude)
+    treats soft suggestions as optional. The hard "NEVER" and "MUST" phrasing
+    forces it to respect the context boundary.
 """
 
-QA_SYSTEM_PROMPT = """You are an expert FIFA World Cup analyst and historian \
-with encyclopedic knowledge of every tournament from 1930 to 2022.
+# ── Condense prompt (for create_history_aware_retriever) ───────────────────
+# Note: NO {chat_history} or {question} placeholders here.
+# MessagesPlaceholder and ("human", "{input}") in chain.py handle those.
+# This is just the system instruction for the rewriting step.
 
-Your answers are grounded exclusively in the context passages below, which \
-were retrieved from authoritative Wikipedia sources. Do not use knowledge \
-outside of these passages.
+CONDENSE_SYSTEM_PROMPT = """Given a chat history and the user's latest question, \
+which may reference something from earlier in the conversation, \
+rewrite the question into a single standalone question that can be understood \
+without any prior context.
 
 Rules:
-- Answer based ONLY on the provided context.
-- If the context is insufficient, say: "I don't have enough information \
-  in my knowledge base to answer that precisely" — do not guess.
-- Be specific with numbers: years, scorelines, goal tallies, dates.
-- Mention which tournament or source the information comes from.
-- Keep answers focused: 2–4 paragraphs unless the question asks for a list.
-- For cross-era comparisons, acknowledge that statistics may be incomplete \
-  for tournaments before 1966.
+- DO NOT answer the question.
+- DO NOT add information not present in the conversation.
+- If the question is already self-contained, return it unchanged.
+- Replace pronouns (he, she, they, it, that team, that tournament) with the \
+specific names or events they refer to based on the chat history."""
 
-Retrieved context:
+
+# ── QA prompt (for create_stuff_documents_chain) ──────────────────────────
+# {context} is automatically populated by create_stuff_documents_chain.
+# Written for Llama-3.3 which needs hard prohibitions, not gentle suggestions.
+
+QA_SYSTEM_PROMPT = """You are a FIFA World Cup historian. Your ONLY source of \
+knowledge is the context passages provided below, retrieved from Wikipedia.
+
+STRICT RULES — you must follow all of these without exception:
+1. Answer using ONLY information explicitly stated in the context passages.
+2. If the answer is NOT in the context, respond with exactly: \
+"I don't have that specific information in my knowledge base." Do not \
+elaborate further.
+3. NEVER use your training data to fill gaps. NEVER invent or estimate \
+statistics, scorelines, dates, or player names.
+4. When the context contains the answer, be precise: include exact years, \
+scorelines, goal tallies, and player names exactly as they appear.
+5. Always state which tournament or source your information comes from.
+6. If the context contains partial information, share what is there and \
+acknowledge what is missing — do not complete the gaps from memory.
+
+Context passages:
 {context}"""
-
-
-CONDENSE_PROMPT = """\
-Given the conversation history below and a follow-up question, rewrite the \
-follow-up question as a single, standalone question that contains all the \
-context needed to retrieve the correct information from a vector database. \
-Do not answer the question — only rewrite it.
-
-Conversation history:
-{chat_history}
-
-Follow-up question: {question}
-
-Standalone question:"""
