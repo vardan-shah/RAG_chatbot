@@ -157,7 +157,6 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 ## Example Questions
 
 ```
-"Who has scored the most goals in World Cup history?"
 "What happened in the 1970 World Cup final?"
 "Tell me about Maradona's Hand of God goal"
 "Which countries have won the World Cup more than once?"
