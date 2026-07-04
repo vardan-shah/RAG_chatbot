@@ -1,14 +1,11 @@
 # Core LangChain packages — v0.3+ required
-langchain>=0.3.0
+langchain>=0.3.27
 langchain-core>=0.3.0
 langchain-community>=0.3.0
 
 # LLM integrations
 langchain-groq>=0.2.0
-langchain-anthropic>=0.3.0
 
-# Vector store and embeddings (separate packages in LangChain v0.3+)
-langchain-chroma>=0.1.0
 langchain-huggingface>=0.1.0
 langchain-text-splitters>=0.3.0
 
