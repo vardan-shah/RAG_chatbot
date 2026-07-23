@@ -1,12 +1,12 @@
-"""
-World Cup RAG Chatbot — Streamlit interface.
+# ── Mac SQLite compatibility patch ────────────────────────────────────────
+# Must be the very first lines — before any other import.
+try:
+    __import__("pysqlite3")
+    import sys
 
-Key changes from previous version:
-  - Loading spinner added for cold-start chain initialization
-  - Chain now returns a dict {"answer": ..., "context": [...]} not a string
-  - Source citations shown in an expander below each answer
-  - Uses @st.cache_resource for efficient chain loading
-"""
+    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+except ImportError:
+    pass
 
 import os
 import streamlit as st
@@ -27,25 +27,25 @@ if not os.getenv("GROQ_API_KEY"):
     st.error(
         "**GROQ_API_KEY not found.** "
         "Get a free key at [console.groq.com/keys](https://console.groq.com/keys) "
-        "and add it to a `.env` file."
+        "and add it to a `.env` file in the project root."
     )
     st.stop()
 
 if not os.path.exists("chroma_db"):
     st.error(
-        "**Knowledge base not found.** "
-        "Run `python build_index.py` first to scrape Wikipedia and build the index."
+        "**Knowledge base not found.** `chroma_db/` is not in git and must be built on each machine."
     )
-    st.code("python build_index.py")
+    st.info("Open Terminal in this project folder and run:")
+    st.code("python build_index.py", language="bash")
+    st.caption("Expected runtime: 4–8 minutes. Only needed once per machine.")
     st.stop()
 
 
-# ── Chain loading (cached across reruns for the session) ───────────────────
-# @st.cache_resource runs once per app session and reuses the chain for all
-# subsequent interactions — avoids reloading the embedding model on every rerun.
+# ── Chain loading ─────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def load_chain():
     from src.chain import create_rag_chain
+
     return create_rag_chain()
 
 
@@ -53,15 +53,15 @@ with st.spinner("Loading knowledge base and RAG chain (first load ~30 seconds)..
     rag_chain = load_chain()
 
 
-# ── Session state ────────────────────────────────────────────────────────────
+# ── Session state ─────────────────────────────────────────────────────────────
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []   # List of HumanMessage / AIMessage objects
+    st.session_state.chat_history = []
 
 if "display_messages" not in st.session_state:
-    st.session_state.display_messages = []  # List of {"role", "content", "sources"}
+    st.session_state.display_messages = []
 
 
-# ── Header ───────────────────────────────────────────────────────────────────
+# ── Header ─────────────────────────────────────────────────────────────────────
 st.title("🏆 World Cup RAG Chatbot")
 st.markdown(
     "Ask anything about FIFA World Cup history **(1930–2022)**. "
@@ -75,11 +75,10 @@ if not st.session_state.display_messages:
         icon="💬",
     )
 
-# ── Render conversation ───────────────────────────────────────────────────────
+# ── Render history ─────────────────────────────────────────────────────────────
 for msg in st.session_state.display_messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        # Show source citations for assistant turns
         if msg["role"] == "assistant" and msg.get("sources"):
             with st.expander("📚 Sources retrieved from knowledge base"):
                 for i, src in enumerate(msg["sources"], 1):
@@ -87,29 +86,25 @@ for msg in st.session_state.display_messages:
                     st.markdown(f"{i}. [{label}]({src})")
 
 
-# ── Handle input ─────────────────────────────────────────────────────────────
+# ── Input ───────────────────────────────────────────────────────────────────────
 if user_query := st.chat_input("Ask about World Cup history..."):
-
-    # Display user message
-    st.session_state.display_messages.append(
-        {"role": "user", "content": user_query}
-    )
+    st.session_state.display_messages.append({"role": "user", "content": user_query})
     with st.chat_message("user"):
         st.markdown(user_query)
 
-    # Generate answer
     with st.chat_message("assistant"):
         with st.spinner("Searching knowledge base..."):
             try:
-                result = rag_chain.invoke({
-                    "input": user_query,
-                    "chat_history": st.session_state.chat_history,
-                })
+                result = rag_chain.invoke(
+                    {
+                        "input": user_query,
+                        "chat_history": st.session_state.chat_history,
+                    }
+                )
 
                 answer = result["answer"]
-
-                # Extract unique source URLs from retrieved documents
                 source_docs = result.get("context", [])
+
                 seen: set[str] = set()
                 sources: list[str] = []
                 for doc in source_docs:
@@ -126,18 +121,19 @@ if user_query := st.chat_input("Ask about World Cup history..."):
                             label = src.split("/wiki/")[-1].replace("_", " ")
                             st.markdown(f"{i}. [{label}]({src})")
 
-                # Persist to display history
-                st.session_state.display_messages.append({
-                    "role": "assistant",
-                    "content": answer,
-                    "sources": sources,
-                })
-
-                # Update LangChain conversation memory
-                st.session_state.chat_history.extend([
-                    HumanMessage(content=user_query),
-                    AIMessage(content=answer),
-                ])
+                st.session_state.display_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": answer,
+                        "sources": sources,
+                    }
+                )
+                st.session_state.chat_history.extend(
+                    [
+                        HumanMessage(content=user_query),
+                        AIMessage(content=answer),
+                    ]
+                )
 
             except Exception as exc:
                 err = str(exc).lower()
@@ -150,7 +146,8 @@ if user_query := st.chat_input("Ask about World Cup history..."):
                 else:
                     st.error(f"Error: {exc}")
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+
+# ── Sidebar ─────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("🏆 World Cup RAG")
     st.caption("ChromaDB · MiniLM-L6-v2 · Llama-3.3-70b · Groq")
@@ -159,9 +156,10 @@ with st.sidebar:
     st.subheader("💡 Example questions")
 
     EXAMPLES = [
+        "Who has scored the most World Cup goals ever?",
         "What happened in the 1970 World Cup final?",
         "Tell me about Maradona's Hand of God goal",
-        "Which team won the 2010 World Cup and where was it hosted?",
+        "Which team won the 2010 World Cup?",
         "How many World Cups did Pelé win?",
         "What records did Miroslav Klose set?",
         "Describe the 2022 World Cup final",
@@ -184,15 +182,15 @@ if hasattr(st.session_state, "_pending_question"):
     pending = st.session_state._pending_question
     del st.session_state._pending_question
 
-    st.session_state.display_messages.append(
-        {"role": "user", "content": pending}
-    )
+    st.session_state.display_messages.append({"role": "user", "content": pending})
     with st.spinner("Searching knowledge base..."):
         try:
-            result = rag_chain.invoke({
-                "input": pending,
-                "chat_history": st.session_state.chat_history,
-            })
+            result = rag_chain.invoke(
+                {
+                    "input": pending,
+                    "chat_history": st.session_state.chat_history,
+                }
+            )
             answer = result["answer"]
             source_docs = result.get("context", [])
             seen: set[str] = set()
@@ -202,16 +200,19 @@ if hasattr(st.session_state, "_pending_question"):
                 if url and url not in seen:
                     seen.add(url)
                     sources.append(url)
-
-            st.session_state.display_messages.append({
-                "role": "assistant",
-                "content": answer,
-                "sources": sources,
-            })
-            st.session_state.chat_history.extend([
-                HumanMessage(content=pending),
-                AIMessage(content=answer),
-            ])
+            st.session_state.display_messages.append(
+                {
+                    "role": "assistant",
+                    "content": answer,
+                    "sources": sources,
+                }
+            )
+            st.session_state.chat_history.extend(
+                [
+                    HumanMessage(content=pending),
+                    AIMessage(content=answer),
+                ]
+            )
             st.rerun()
         except Exception as exc:
             st.error(f"Error: {exc}")

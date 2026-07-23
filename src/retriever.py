@@ -1,47 +1,36 @@
 """
-ChromaDB vector store and retriever — with Apple Silicon MPS support.
+ChromaDB vector store and retriever — Mac and Windows compatible.
 
-On M5 MacBook: uses the built-in GPU (MPS backend) for embedding,
-making build_index.py ~3x faster than CPU.
-Falls back to CPU automatically if MPS is unavailable.
+Why CPU and not MPS:
+  torch.backends.mps.is_available() returns True on M-series Macs, but
+  langchain-huggingface's HuggingFaceEmbeddings has a known incompatibility
+  with the MPS device string on certain versions of sentence-transformers.
+  It causes silent failures or crashes that do not occur on Windows (where
+  MPS is never available). Forcing CPU gives identical results on all
+  platforms and eliminates the Mac-specific bug entirely.
+  The embedding step is fast enough on CPU — ~4 min for 1,500 chunks.
 """
 
 import os
-import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
-CHROMA_DIR      = "chroma_db"
+CHROMA_DIR = "chroma_db"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
-
-def _get_device() -> str:
-    """
-    Detect the best available compute device.
-
-    Priority: MPS (Apple Silicon GPU) > CPU
-    MPS is available on M1/M2/M3/M4/M5 Macs with PyTorch >= 1.13.
-    On any non-Mac or older PyTorch, falls back to CPU silently.
-    """
-    if torch.backends.mps.is_available():
-        print("  Using Apple MPS (GPU) for embeddings")
-        return "mps"
-    print("  Using CPU for embeddings")
-    return "cpu"
 
 
 def get_embeddings() -> HuggingFaceEmbeddings:
     """
-    Load MiniLM-L6-v2 embedding model on the best available device.
+    Load MiniLM-L6-v2 on CPU.
 
-    On M5: MPS backend gives ~3x speedup during build_index.py.
-    At query time (app.py): single-query embedding is fast on either device.
-    First call downloads ~90 MB model — cached in ~/.cache/huggingface/ after.
+    CPU is used explicitly because MPS (Apple Silicon GPU) causes
+    compatibility issues with langchain-huggingface on some versions.
+    First call downloads ~90 MB to ~/.cache/huggingface/ — cached after.
     """
-    device = _get_device()
+    print("  Device: CPU (cross-platform compatible)")
     return HuggingFaceEmbeddings(
         model_name=EMBEDDING_MODEL,
-        model_kwargs={"device": device},
+        model_kwargs={"device": "cpu"},
         encode_kwargs={"normalize_embeddings": True},
     )
 
@@ -49,7 +38,7 @@ def get_embeddings() -> HuggingFaceEmbeddings:
 def build_vector_store(chunks: list, embeddings: HuggingFaceEmbeddings) -> Chroma:
     """
     Embed all chunks and persist to ChromaDB.
-    Called once by build_index.py — never called by app.py.
+    Called once by build_index.py — never by app.py.
     """
     os.makedirs(CHROMA_DIR, exist_ok=True)
 
@@ -61,21 +50,25 @@ def build_vector_store(chunks: list, embeddings: HuggingFaceEmbeddings) -> Chrom
     )
 
     count = vector_store._collection.count()
-    print(f"  ChromaDB contains {count} vectors")
+    print(f"  ChromaDB ready: {count} vectors stored")
     return vector_store
 
 
 def get_retriever(k: int = 6):
     """
-    Load existing ChromaDB from disk and return a configured retriever.
+    Load ChromaDB from disk and return a configured retriever.
     Called by src/chain.py on every app session start.
 
     Raises FileNotFoundError if build_index.py has not been run yet.
+    chroma_db/ is in .gitignore — it does not exist on a fresh clone.
+    You must run build_index.py once on every new machine.
     """
     if not os.path.exists(CHROMA_DIR):
         raise FileNotFoundError(
-            f"Vector store not found at '{CHROMA_DIR}/'. "
-            "Run 'python build_index.py' first."
+            "\n\n  chroma_db/ not found. This directory is not in git.\n"
+            "  Run this once to build the index:\n\n"
+            "    python build_index.py\n\n"
+            "  Expected runtime: 4–8 minutes.\n"
         )
 
     embeddings = get_embeddings()
